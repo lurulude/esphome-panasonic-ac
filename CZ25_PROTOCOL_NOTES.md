@@ -19,7 +19,7 @@ Relevant full-packet byte indices:
 | 14 | defrost (`0x02` documented/observed elsewhere as defrost) |
 | 18 | primary indoor/current temperature; likely intake/return-air/control temperature |
 | 19 | outside temperature |
-| 21 | secondary/alternate indoor intake-temperature representation; exact processing path still unknown on CZ25 |
+| 21 | secondary/alternate intake-temperature representation; tracks b18 very closely on CZ25 |
 | 22 | alternate outside temperature |
 | 28-29 | little-endian raw outdoor/power-related value |
 | 30 | current-like value; `b30 / 5` tracks current strongly |
@@ -170,15 +170,24 @@ b18 is the primary temperature used by the existing component as current tempera
 
 b21 is strongly linked to the same intake-air measurement as b18 on this CZ25.
 
-A direct physical test was performed by warming the indoor unit's intake-air temperature sensor by hand. **Both b18 and b21 rose together when that specific sensor was warmed.** This is strong evidence against interpreting b21 as an indoor coil/pipe/heat-exchanger temperature on this model.
+A controlled physical test was performed by warming the indoor unit's intake-air temperature sensor by hand while the unit was idle. The log shows b18 and b21 moving together, with b21 staying exactly +1 C above b18 throughout the observed rise and initial fall:
 
-The remaining plausible interpretations are that b21 is:
+| Approx. time | b18 | b21 |
+| --- | ---: | ---: |
+| 19:37:53 | 23 C | 24 C |
+| 19:38:08 | 24 C | 25 C |
+| 19:38:13 | 26 C | 27 C |
+| 19:38:18 | 27 C | 28 C |
+| 19:38:23 | 28 C | 29 C |
+| 19:38:33 | 28 C | 29 C |
+| 19:38:38 | 27 C | 28 C |
+| 19:38:48 | 26 C | 27 C |
 
-- a second representation of the same physical intake thermistor,
-- the same measurement after a different filter/offset/processing path, or
-- an alternate/fallback temperature channel derived from the same physical sensor.
+The raw packet bytes show the same relationship directly (`b21 = b18 + 1`) through this transient. No extra lag is visible at the 5-second polling resolution.
 
-In normal captures b21 often differs from b18 by only 0-1 C, which is consistent with these possibilities. b18 remains the primary current-temperature field because that is what the existing component uses when valid. b21 remains exposed under the deliberately neutral key `temperature_b21` until its exact processing relationship to b18 is established.
+Because only the intake-air thermistor was deliberately heated, this is strong evidence against interpreting b21 as an indoor coil/pipe/heat-exchanger temperature on this model. The strongest current interpretation is that b21 is another representation of the same physical intake temperature, likely with a fixed/conditional offset or a closely related internal processing path.
+
+The +1 C relationship is strong for this controlled transient but should not yet be assumed universal: other captures sometimes show b18 and b21 equal. b18 therefore remains the primary current-temperature field, and b21 remains exposed under the neutral key `temperature_b21` while the exact rule that produces it is investigated.
 
 ### b13
 
