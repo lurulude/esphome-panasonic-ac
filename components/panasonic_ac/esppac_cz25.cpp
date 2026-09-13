@@ -37,6 +37,21 @@ std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
     }
   }
 
+  if (this->mode == climate::CLIMATE_MODE_DRY) {
+    switch (state) {
+      case 0x20:
+        return "DRY_IDLE";
+      case 0x24:
+        return "DRY_TRANS";
+      case 0x28:
+        return "DRY_START";
+      case 0x2C:
+        return "DRY_RUN";
+      default:
+        break;
+    }
+  }
+
   switch (state) {
     case 0x00:
       if (this->mode == climate::CLIMATE_MODE_OFF)
@@ -44,14 +59,16 @@ std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
       return "IDLE_0x00";
     case 0x0C:
       return "AUTO_COOL_RUN";
+    // 0x2x is ambiguous outside AUTO/DRY because selected mode (b2) changes
+    // before the physical byte-12 state machine catches up during transitions.
     case 0x20:
-      return "DRY_IDLE";
+      return "STATE_0x20";
     case 0x24:
-      return "DRY_TRANS";
+      return "STATE_0x24";
     case 0x28:
-      return "DRY_START";
+      return "STATE_0x28";
     case 0x2C:
-      return "DRY_RUN";
+      return "STATE_0x2C";
     case 0x30:
       return "COOL_IDLE";
     case 0x34:
