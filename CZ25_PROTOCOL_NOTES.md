@@ -4,6 +4,19 @@ These notes describe observations from a Panasonic CZ25-series unit connected th
 
 They are intentionally conservative: values are marked as observed only when captured from the tested unit. Some state names are still provisional and may be model-dependent.
 
+## Project scope
+
+The CZ25 branch is intended to improve the Home Assistant climate entity and expose useful Panasonic telemetry without actively fuzzing unknown control fields.
+
+The production-oriented approach is:
+
+- keep normal Panasonic climate control compatible with the upstream component,
+- derive `climate.action` from the physical CN-CNT operational state when known,
+- expose useful decoded telemetry as normal HA entities,
+- expose uncertain fields under neutral/debug names,
+- expose the complete 35-byte CN-CNT status response passively as `raw_status_packet` for later reverse engineering,
+- do not probe unknown control payload bytes on the production branch.
+
 ## Packet layout used here
 
 The normal poll response is 35 bytes including header and checksum.
@@ -72,6 +85,17 @@ The COOL startup sequence in AUTO was captured as:
 
 The 5-second polling interval did not capture `0x34` in that startup, so COOL_TRANS remains predicted rather than confirmed on this unit.
 
+### Compressor phase bits
+
+The low-nibble phase pattern is strongly supported by the captures:
+
+- `x0`: idle/base
+- `x4`: transition / stopping
+- `x8`: starting
+- `xC`: running
+
+This matches the compressor-state terminology exposed by commercial Panasonic CN-CNT gateways: Off / To off / To on / On. Interpreting `b12 & 0x0C` as a two-bit phase value gives exactly that sequence (`00`, `01`, `10`, `11`).
+
 ### Observed 0x0x AUTO-family values with unresolved meaning
 
 Earlier captures have shown `0x0C` while selected mode was AUTO. Newer captures prove that ordinary AUTO cooling uses the standard COOL family (`0x38/0x3C`), so `0x0C` must **not** be called AUTO_COOL_RUN.
@@ -90,15 +114,6 @@ Current conservative labels are:
 | --- | --- | --- |
 | DRY | `0x24` | transition |
 | COOL | `0x34` | transition |
-
-The broad low-nibble pattern is now strongly supported:
-
-- `x0`: idle/base
-- `x4`: transition
-- `x8`: start
-- `xC`: run
-
-This pattern is directly supported by HEAT (`40/44/48/4C`) and by COOL (`38/3C`, with `30` observed separately). DRY has `20/28/2C` observed, with `24` still missing.
 
 ## AUTO / HEAT_COOL behavior
 
@@ -203,6 +218,14 @@ Examples observed include:
 
 During AUTO cooling startup, the reference also moved independently of b18/b21, reinforcing that it is a control target rather than a sensor.
 
+Commercial CN-CNT gateways expose separate concepts named `Temperature reference`, `Input reference temperature`, and `Return path temperature`. These names are useful comparison targets for future controlled tests, but the exact mapping to b13/b18/b21 is not yet proven on this CZ25.
+
+## External room sensor
+
+No direct CN-CNT write field for an external room-temperature measurement has been established for this RAC protocol. Commercial CN-CNT gateways implement an external room sensor as a virtual-temperature controller: they read Panasonic's current reference temperature and continuously compensate the setpoint sent to the unit rather than replacing the Panasonic thermistor value directly.
+
+That distinction should be preserved in the ESPHome component. The existing upstream `current_temperature_sensor` only changes the ESPHome climate entity's displayed/current temperature and does not send a measured room temperature to the indoor unit.
+
 ## Power/current fields
 
 The branch exposes both the upstream value and the raw fields for comparison.
@@ -223,19 +246,30 @@ The tested unit repeatedly cycles combinations such as:
 
 The exact meaning is unknown. The CZ25 branch exposes the triplet as `status_multiplex` to make further capture analysis easier.
 
-## Debug entities
+## Passive raw capture
+
+The branch can expose the complete verified CN-CNT poll response as `raw_status_packet`. For the normal CZ25 response this is the full 35-byte packet including header, payload length, all known and unknown status bytes, and checksum.
+
+This is the preferred way to collect unknown data fields: it is entirely passive and does not modify unknown control bytes. Normal verbose UART logging remains useful during active reverse engineering, but the raw packet entity makes long-term HA-side capture possible without keeping verbose logging enabled.
+
+## Exposed entities
 
 The current CZ25 branch can expose:
 
-- decoded operational state
+- normal Panasonic climate controls and target/current temperature
+- decoded physical operational state
 - raw b12
 - raw selected mode b2
 - compressor-running binary state
 - b18 intake/current temperature
 - b21 alternate/secondary intake-related temperature
 - b13/2 control reference
+- outside temperature
+- defrost state
+- upstream-compatible current power consumption
 - b28/b29 raw outdoor power value
 - b30/5 current-like value
 - b31:b32:b33 multiplex triplet
+- complete verified CN-CNT status packet as hex text
 
-These entities are intended to make further reverse engineering possible without repeatedly changing the parser.
+The raw/debug entities are intended to support further decoding without changing the parser or writing unknown values to the indoor unit.
