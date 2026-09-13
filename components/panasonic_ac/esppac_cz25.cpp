@@ -11,98 +11,39 @@ namespace CNT {
 static const char *const TAG_CZ25 = "panasonic_ac.cz25";
 
 std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
-  const bool mode_changed = this->has_previous_selected_mode_ && this->previous_selected_mode_ != this->mode;
-
-  // The 0x2x family is ambiguous on CZ25: DRY uses it in DRY mode and
-  // AUTO/HEAT_COOL uses it for its heating side. During a mode change b2 is
-  // updated before b12, so prefer the previous selected mode for one packet
-  // when the two disagree.
-  if (mode_changed && state >= 0x20 && state <= 0x2C && (state & 0x03) == 0x00) {
-    if (this->previous_selected_mode_ == climate::CLIMATE_MODE_HEAT_COOL) {
-      switch (state) {
-        case 0x20:
-          return "AUTO_HEAT_IDLE_TRANSITION";
-        case 0x24:
-          return "AUTO_HEAT_TRANS_TRANSITION";
-        case 0x28:
-          return "AUTO_HEAT_START_TRANSITION";
-        case 0x2C:
-          return "AUTO_HEAT_RUN_TRANSITION";
-        default:
-          break;
-      }
-    }
-    if (this->previous_selected_mode_ == climate::CLIMATE_MODE_DRY) {
-      switch (state) {
-        case 0x20:
-          return "DRY_IDLE_TRANSITION";
-        case 0x24:
-          return "DRY_TRANS_TRANSITION";
-        case 0x28:
-          return "DRY_START_TRANSITION";
-        case 0x2C:
-          return "DRY_RUN_TRANSITION";
-        default:
-          break;
-      }
-    }
-  }
-
-  if (this->mode == climate::CLIMATE_MODE_HEAT_COOL) {
-    switch (state) {
-      case 0x00:
-        return "AUTO_IDLE";
-      case 0x04:
-        return "AUTO_COOL_TRANS";
-      case 0x08:
-        return "AUTO_COOL_START";
-      case 0x0C:
-        return "AUTO_COOL_RUN";
-      case 0x20:
-        return "AUTO_HEAT_IDLE";
-      case 0x24:
-        return "AUTO_HEAT_TRANS";
-      case 0x28:
-        return "AUTO_HEAT_START";
-      case 0x2C:
-        return "AUTO_HEAT_RUN";
-      default:
-        break;
-    }
-  }
-
-  if (this->mode == climate::CLIMATE_MODE_DRY) {
-    switch (state) {
-      case 0x20:
-        return "DRY_IDLE";
-      case 0x24:
-        return "DRY_TRANS";
-      case 0x28:
-        return "DRY_START";
-      case 0x2C:
-        return "DRY_RUN";
-      default:
-        break;
-    }
-  }
-
+  // Captures from the CZ25 show that b12 describes the physical state machine,
+  // independently of the selected mode in b2. AUTO/HEAT_COOL can therefore
+  // report HEAT_* (0x4x), COOL_* (0x3x), and potentially DRY_* (0x2x) states.
+  // b2 changes immediately after a command while b12 can remain in the old
+  // physical family for several seconds. That is useful information and should
+  // not be relabelled according to the newly selected mode.
   switch (state) {
     case 0x00:
       if (this->mode == climate::CLIMATE_MODE_OFF)
         return "OFF";
+      if (this->mode == climate::CLIMATE_MODE_HEAT_COOL)
+        return "AUTO_IDLE";
       return "IDLE_0x00";
+
+    // 0x0x has been observed in AUTO captures, but its exact physical meaning
+    // is not yet resolved. Keep the low-nibble phase hint without inventing a
+    // heating/cooling direction.
+    case 0x04:
+      return this->mode == climate::CLIMATE_MODE_HEAT_COOL ? "AUTO_TRANS_0x04" : "STATE_0x04";
+    case 0x08:
+      return this->mode == climate::CLIMATE_MODE_HEAT_COOL ? "AUTO_START_0x08" : "STATE_0x08";
     case 0x0C:
-      return mode_changed ? "AUTO_COOL_RUN_TRANSITION" : "AUTO_COOL_RUN";
-    // 0x2x is ambiguous outside AUTO/DRY. If previous mode did not resolve it,
-    // keep the label neutral instead of inventing a physical meaning.
+      return this->mode == climate::CLIMATE_MODE_HEAT_COOL ? "AUTO_RUN_0x0C" : "STATE_0x0C";
+
     case 0x20:
-      return "STATE_0x20";
+      return "DRY_IDLE";
     case 0x24:
-      return "STATE_0x24";
+      return "DRY_TRANS";
     case 0x28:
-      return "STATE_0x28";
+      return "DRY_START";
     case 0x2C:
-      return "STATE_0x2C";
+      return "DRY_RUN";
+
     case 0x30:
       return "COOL_IDLE";
     case 0x34:
@@ -111,6 +52,7 @@ std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
       return "COOL_START";
     case 0x3C:
       return "COOL_RUN";
+
     case 0x40:
       return "HEAT_IDLE";
     case 0x44:
@@ -119,6 +61,7 @@ std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
       return "HEAT_START";
     case 0x4C:
       return "HEAT_RUN";
+
     case 0x60:
       return "FAN";
     default:
@@ -131,10 +74,13 @@ std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
 }
 
 bool PanasonicACCZ25::determine_compressor_running_(uint8_t state) const {
+  // Across the observed state families, x8 is START and xC is RUN. x0 is
+  // idle/base and x4 is a transition with the compressor treated as stopped.
   switch (state) {
-    case 0x0C:  // AUTO cooling run
-    case 0x28:  // DRY/AUTO heat start
-    case 0x2C:  // DRY/AUTO heat run
+    case 0x08:  // AUTO-family start; physical direction still unknown
+    case 0x0C:  // AUTO-family run; observed, direction still unknown
+    case 0x28:  // DRY start
+    case 0x2C:  // DRY run
     case 0x38:  // COOL start
     case 0x3C:  // COOL run
     case 0x48:  // HEAT start
@@ -146,86 +92,48 @@ bool PanasonicACCZ25::determine_compressor_running_(uint8_t state) const {
 }
 
 climate::ClimateAction PanasonicACCZ25::determine_action_from_cnt_state_(uint8_t state) {
+  // Keep normal climate semantics when the selected mode itself is OFF.
   if (this->mode == climate::CLIMATE_MODE_OFF)
     return climate::CLIMATE_ACTION_OFF;
 
-  if (this->mode == climate::CLIMATE_MODE_FAN_ONLY || state == 0x60)
-    return climate::CLIMATE_ACTION_FAN;
-
-  const bool mode_changed = this->has_previous_selected_mode_ && this->previous_selected_mode_ != this->mode;
-
-  // Resolve stale 0x2x states with the previous selected mode. This is needed
-  // because b2 changes immediately while the physical state in b12 can remain
-  // on the old mode for one or more responses.
-  if (mode_changed && state >= 0x20 && state <= 0x2C && (state & 0x03) == 0x00) {
-    if (this->previous_selected_mode_ == climate::CLIMATE_MODE_HEAT_COOL) {
-      if (state == 0x20)
-        return climate::CLIMATE_ACTION_IDLE;
-      return climate::CLIMATE_ACTION_HEATING;
-    }
-    if (this->previous_selected_mode_ == climate::CLIMATE_MODE_DRY) {
-      if (state == 0x20)
-        return climate::CLIMATE_ACTION_IDLE;
-      return climate::CLIMATE_ACTION_DRYING;
-    }
-  }
-
-  // AUTO/HEAT_COOL reuses state families: 0x0x for the cooling side and
-  // 0x2x for the heating side. These mappings are based on CZ25 captures.
-  if (this->mode == climate::CLIMATE_MODE_HEAT_COOL) {
-    switch (state) {
-      case 0x00:
-      case 0x20:
-        return climate::CLIMATE_ACTION_IDLE;
-      case 0x04:
-      case 0x08:
-      case 0x0C:
-        return climate::CLIMATE_ACTION_COOLING;
-      case 0x24:
-      case 0x28:
-      case 0x2C:
-        return climate::CLIMATE_ACTION_HEATING;
-      default:
-        break;
-    }
-  }
-
-  // A stale AUTO cooling-side state can remain briefly after selecting another
-  // mode. Preserve the physical action during that transition.
-  if (mode_changed && this->previous_selected_mode_ == climate::CLIMATE_MODE_HEAT_COOL) {
-    if (state == 0x04 || state == 0x08 || state == 0x0C)
-      return climate::CLIMATE_ACTION_COOLING;
-  }
-
-  // Decode the physical state family even when a newly selected mode has not
-  // yet propagated to the indoor unit state machine.
+  // Derive action primarily from the physical b12 family, not from selected
+  // mode or current-vs-target temperature. This also preserves the real old
+  // physical action for the few seconds after b2 has changed to a new mode.
   switch (state) {
     case 0x00:
-    case 0x20:
+    case 0x04:
       return climate::CLIMATE_ACTION_IDLE;
-    case 0x0C:
-      return climate::CLIMATE_ACTION_COOLING;
+
+    case 0x20:
     case 0x24:
+      return climate::CLIMATE_ACTION_IDLE;
     case 0x28:
     case 0x2C:
       return climate::CLIMATE_ACTION_DRYING;
+
     case 0x30:
-      return climate::CLIMATE_ACTION_IDLE;
     case 0x34:
+      return climate::CLIMATE_ACTION_IDLE;
     case 0x38:
     case 0x3C:
       return climate::CLIMATE_ACTION_COOLING;
+
     case 0x40:
-      return climate::CLIMATE_ACTION_IDLE;
     case 0x44:
+      return climate::CLIMATE_ACTION_IDLE;
     case 0x48:
     case 0x4C:
       return climate::CLIMATE_ACTION_HEATING;
+
+    case 0x60:
+      return climate::CLIMATE_ACTION_FAN;
     default:
       break;
   }
 
-  // Unknown/transient state: retain the upstream temperature-based fallback.
+  // 0x08/0x0C and any future unknown states do not yet reveal a trustworthy
+  // heat/cool direction. Retain upstream temperature-based behavior only as a
+  // fallback for those unresolved cases.
   return this->determine_action();
 }
 
@@ -304,11 +212,6 @@ void PanasonicACCZ25::loop() {
         this->action = this->determine_action_from_cnt_state_(this->rx_buffer_[12]);
 
       this->publish_state();
-
-      // Keep the selected mode from this response so the next response can
-      // distinguish a stale physical b12 state from the newly selected b2 mode.
-      this->previous_selected_mode_ = this->mode;
-      this->has_previous_selected_mode_ = true;
 
       if (this->state_ != ACState::Ready)
         this->state_ = ACState::Ready;
