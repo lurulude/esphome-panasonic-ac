@@ -48,13 +48,13 @@ CONF_OPERATIONAL_STATE = "operational_state"
 CONF_OPERATIONAL_STATE_RAW = "operational_state_raw"
 CONF_SELECTED_MODE_RAW = "selected_mode_raw"
 CONF_STATUS_MULTIPLEX = "status_multiplex"
+CONF_RAW_STATUS_PACKET = "raw_status_packet"
 CONF_COMPRESSOR_RUNNING = "compressor_running"
 CONF_INTAKE_TEMPERATURE = "intake_temperature"
 CONF_TEMPERATURE_B21 = "temperature_b21"
 CONF_CONTROL_REFERENCE = "control_reference"
 CONF_OUTDOOR_POWER_RAW = "outdoor_power_raw"
 CONF_OUTDOOR_CURRENT = "outdoor_current"
-CONF_PROBE_SCAN = "probe_scan"
 CONF_WLAN = "wlan"
 CONF_CNT = "cnt"
 
@@ -96,6 +96,7 @@ PANASONIC_CNT_SCHEMA = {
     cv.Optional(CONF_OPERATIONAL_STATE_RAW): text_sensor.text_sensor_schema(),
     cv.Optional(CONF_SELECTED_MODE_RAW): text_sensor.text_sensor_schema(),
     cv.Optional(CONF_STATUS_MULTIPLEX): text_sensor.text_sensor_schema(),
+    cv.Optional(CONF_RAW_STATUS_PACKET): text_sensor.text_sensor_schema(),
     cv.Optional(CONF_COMPRESSOR_RUNNING): binary_sensor.binary_sensor_schema(),
     cv.Optional(CONF_INTAKE_TEMPERATURE): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS,
@@ -127,7 +128,6 @@ PANASONIC_CNT_SCHEMA = {
         device_class=DEVICE_CLASS_CURRENT,
         state_class=STATE_CLASS_MEASUREMENT,
     ),
-    cv.Optional(CONF_PROBE_SCAN, default=False): cv.boolean,
 }
 
 CONFIG_SCHEMA = cv.typed_schema(
@@ -200,6 +200,10 @@ async def to_code(config):
         sens = await text_sensor.new_text_sensor(config[CONF_STATUS_MULTIPLEX])
         cg.add(var.set_status_multiplex_sensor(sens))
 
+    if CONF_RAW_STATUS_PACKET in config:
+        sens = await text_sensor.new_text_sensor(config[CONF_RAW_STATUS_PACKET])
+        cg.add(var.set_raw_status_packet_sensor(sens))
+
     if CONF_COMPRESSOR_RUNNING in config:
         sens = await binary_sensor.new_binary_sensor(config[CONF_COMPRESSOR_RUNNING])
         cg.add(var.set_compressor_running_sensor(sens))
@@ -223,6 +227,3 @@ async def to_code(config):
     if CONF_OUTDOOR_CURRENT in config:
         sens = await sensor.new_sensor(config[CONF_OUTDOOR_CURRENT])
         cg.add(var.set_outdoor_current_sensor(sens))
-
-    if CONF_PROBE_SCAN in config:
-        cg.add(var.set_probe_scan_enabled(config[CONF_PROBE_SCAN]))
