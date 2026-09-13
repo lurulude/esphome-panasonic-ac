@@ -59,6 +59,8 @@ class PanasonicACCZ25 : public PanasonicACCNT {
 
   void set_operational_state_sensor(text_sensor::TextSensor *sensor) { this->operational_state_sensor_ = sensor; }
   void set_operational_state_raw_sensor(text_sensor::TextSensor *sensor) { this->operational_state_raw_sensor_ = sensor; }
+  void set_selected_mode_raw_sensor(text_sensor::TextSensor *sensor) { this->selected_mode_raw_sensor_ = sensor; }
+  void set_status_multiplex_sensor(text_sensor::TextSensor *sensor) { this->status_multiplex_sensor_ = sensor; }
   void set_compressor_running_sensor(binary_sensor::BinarySensor *sensor) { this->compressor_running_sensor_ = sensor; }
   void set_intake_temperature_sensor(sensor::Sensor *sensor) { this->intake_temperature_sensor_ = sensor; }
   void set_temperature_b21_sensor(sensor::Sensor *sensor) { this->temperature_b21_sensor_ = sensor; }
@@ -69,6 +71,8 @@ class PanasonicACCZ25 : public PanasonicACCNT {
  protected:
   text_sensor::TextSensor *operational_state_sensor_ = nullptr;
   text_sensor::TextSensor *operational_state_raw_sensor_ = nullptr;
+  text_sensor::TextSensor *selected_mode_raw_sensor_ = nullptr;
+  text_sensor::TextSensor *status_multiplex_sensor_ = nullptr;
   binary_sensor::BinarySensor *compressor_running_sensor_ = nullptr;
   sensor::Sensor *intake_temperature_sensor_ = nullptr;
   sensor::Sensor *temperature_b21_sensor_ = nullptr;
