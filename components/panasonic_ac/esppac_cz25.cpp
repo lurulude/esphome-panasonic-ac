@@ -182,6 +182,19 @@ void PanasonicACCZ25::publish_cnt_telemetry_() {
     this->operational_state_raw_sensor_->publish_state(buffer);
   }
 
+  if (this->selected_mode_raw_sensor_ != nullptr) {
+    char buffer[8];
+    std::snprintf(buffer, sizeof(buffer), "0x%02X", this->rx_buffer_[2]);
+    this->selected_mode_raw_sensor_->publish_state(buffer);
+  }
+
+  if (this->status_multiplex_sensor_ != nullptr && this->rx_buffer_.size() > 33) {
+    char buffer[16];
+    std::snprintf(buffer, sizeof(buffer), "%02X:%02X:%02X", this->rx_buffer_[31], this->rx_buffer_[32],
+                  this->rx_buffer_[33]);
+    this->status_multiplex_sensor_->publish_state(buffer);
+  }
+
   if (this->compressor_running_sensor_ != nullptr)
     this->compressor_running_sensor_->publish_state(this->determine_compressor_running_(state));
 
