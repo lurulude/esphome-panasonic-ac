@@ -19,7 +19,7 @@ Relevant full-packet byte indices:
 | 14 | defrost (`0x02` documented/observed elsewhere as defrost) |
 | 18 | primary indoor/current temperature; likely intake/return-air/control temperature |
 | 19 | outside temperature |
-| 21 | secondary indoor temperature field; exact physical meaning still unknown on CZ25 |
+| 21 | secondary/alternate indoor intake-temperature representation; exact processing path still unknown on CZ25 |
 | 22 | alternate outside temperature |
 | 28-29 | little-endian raw outdoor/power-related value |
 | 30 | current-like value; `b30 / 5` tracks current strongly |
@@ -164,11 +164,21 @@ Observed start/run values include:
 
 ### b18
 
-b18 is the primary temperature used by the existing component as current temperature when supported. On this CZ25 it behaves consistently with Panasonic's indoor/intake/control temperature, but should not be assumed to equal a room-center reference thermometer.
+b18 is the primary temperature used by the existing component as current temperature when supported. On this CZ25 it behaves consistently with Panasonic's indoor intake/return-air/control temperature, but should not be assumed to equal a room-center reference thermometer.
 
 ### b21
 
-b21 is a separate temperature field. On this unit it often differs from b18 by 0-1 C. The data collected so far does not justify naming it as the indoor coil/pipe temperature, so it remains deliberately neutral as `temperature_b21`.
+b21 is strongly linked to the same intake-air measurement as b18 on this CZ25.
+
+A direct physical test was performed by warming the indoor unit's intake-air temperature sensor by hand. **Both b18 and b21 rose together when that specific sensor was warmed.** This is strong evidence against interpreting b21 as an indoor coil/pipe/heat-exchanger temperature on this model.
+
+The remaining plausible interpretations are that b21 is:
+
+- a second representation of the same physical intake thermistor,
+- the same measurement after a different filter/offset/processing path, or
+- an alternate/fallback temperature channel derived from the same physical sensor.
+
+In normal captures b21 often differs from b18 by only 0-1 C, which is consistent with these possibilities. b18 remains the primary current-temperature field because that is what the existing component uses when valid. b21 remains exposed under the deliberately neutral key `temperature_b21` until its exact processing relationship to b18 is established.
 
 ### b13
 
@@ -213,7 +223,7 @@ The current CZ25 branch can expose:
 - raw selected mode b2
 - compressor-running binary state
 - b18 intake/current temperature
-- b21 secondary temperature
+- b21 alternate/secondary intake-related temperature
 - b13/2 control reference
 - b28/b29 raw outdoor power value
 - b30/5 current-like value
