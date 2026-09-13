@@ -11,12 +11,36 @@ namespace CNT {
 static const char *const TAG_CZ25 = "panasonic_ac.cz25";
 
 std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
+  // Some byte-12 state families are mode-dependent on CZ25. In particular,
+  // the 0x2x family is used by DRY in DRY mode and by the heating side of
+  // AUTO/HEAT_COOL in AUTO mode.
+  if (this->mode == climate::CLIMATE_MODE_HEAT_COOL) {
+    switch (state) {
+      case 0x00:
+        return "AUTO_IDLE";
+      case 0x04:
+        return "AUTO_COOL_TRANS";
+      case 0x08:
+        return "AUTO_COOL_START";
+      case 0x0C:
+        return "AUTO_COOL_RUN";
+      case 0x20:
+        return "AUTO_HEAT_IDLE";
+      case 0x24:
+        return "AUTO_HEAT_TRANS";
+      case 0x28:
+        return "AUTO_HEAT_START";
+      case 0x2C:
+        return "AUTO_HEAT_RUN";
+      default:
+        break;
+    }
+  }
+
   switch (state) {
     case 0x00:
       if (this->mode == climate::CLIMATE_MODE_OFF)
         return "OFF";
-      if (this->mode == climate::CLIMATE_MODE_HEAT_COOL)
-        return "AUTO_IDLE";
       return "IDLE_0x00";
     case 0x0C:
       return "AUTO_COOL_RUN";
@@ -27,8 +51,6 @@ std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
     case 0x28:
       return "DRY_START";
     case 0x2C:
-      if (this->mode == climate::CLIMATE_MODE_HEAT_COOL)
-        return "AUTO_HEAT_RUN";
       return "DRY_RUN";
     case 0x30:
       return "COOL_IDLE";
@@ -59,9 +81,9 @@ std::string PanasonicACCZ25::determine_operational_state_(uint8_t state) const {
 
 bool PanasonicACCZ25::determine_compressor_running_(uint8_t state) const {
   switch (state) {
-    case 0x0C:  // AUTO cooling side, observed on CZ25
-    case 0x28:  // DRY start
-    case 0x2C:  // DRY run / AUTO heating side
+    case 0x0C:  // AUTO cooling run
+    case 0x28:  // DRY/AUTO heat start
+    case 0x2C:  // DRY/AUTO heat run
     case 0x38:  // COOL start
     case 0x3C:  // COOL run
     case 0x48:  // HEAT start
@@ -79,14 +101,24 @@ climate::ClimateAction PanasonicACCZ25::determine_action_from_cnt_state_(uint8_t
   if (this->mode == climate::CLIMATE_MODE_FAN_ONLY || state == 0x60)
     return climate::CLIMATE_ACTION_FAN;
 
-  // AUTO has two CZ25-specific active states observed in the captured logs.
+  // AUTO/HEAT_COOL reuses state families: 0x0x for the cooling side and
+  // 0x2x for the heating side. These mappings are based on CZ25 captures.
   if (this->mode == climate::CLIMATE_MODE_HEAT_COOL) {
-    if (state == 0x00)
-      return climate::CLIMATE_ACTION_IDLE;
-    if (state == 0x0C)
-      return climate::CLIMATE_ACTION_COOLING;
-    if (state == 0x2C)
-      return climate::CLIMATE_ACTION_HEATING;
+    switch (state) {
+      case 0x00:
+      case 0x20:
+        return climate::CLIMATE_ACTION_IDLE;
+      case 0x04:
+      case 0x08:
+      case 0x0C:
+        return climate::CLIMATE_ACTION_COOLING;
+      case 0x24:
+      case 0x28:
+      case 0x2C:
+        return climate::CLIMATE_ACTION_HEATING;
+      default:
+        break;
+    }
   }
 
   // Decode the physical state family even when a newly selected mode has not
