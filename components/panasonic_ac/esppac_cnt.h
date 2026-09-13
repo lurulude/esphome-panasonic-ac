@@ -1,6 +1,9 @@
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/climate/climate_mode.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 #include "esppac.h"
+
+#include <string>
 
 namespace esphome {
 namespace panasonic_ac {
@@ -48,6 +51,41 @@ class PanasonicACCNT : public PanasonicAC {
 
   bool verify_packet();
   void handle_packet();
+};
+
+class PanasonicACCZ25 : public PanasonicACCNT {
+ public:
+  void loop() override;
+
+  void set_operational_state_sensor(text_sensor::TextSensor *sensor) { this->operational_state_sensor_ = sensor; }
+  void set_operational_state_raw_sensor(text_sensor::TextSensor *sensor) { this->operational_state_raw_sensor_ = sensor; }
+  void set_selected_mode_raw_sensor(text_sensor::TextSensor *sensor) { this->selected_mode_raw_sensor_ = sensor; }
+  void set_status_multiplex_sensor(text_sensor::TextSensor *sensor) { this->status_multiplex_sensor_ = sensor; }
+  void set_raw_status_packet_sensor(text_sensor::TextSensor *sensor) { this->raw_status_packet_sensor_ = sensor; }
+  void set_compressor_running_sensor(binary_sensor::BinarySensor *sensor) { this->compressor_running_sensor_ = sensor; }
+  void set_intake_temperature_sensor(sensor::Sensor *sensor) { this->intake_temperature_sensor_ = sensor; }
+  void set_temperature_b21_sensor(sensor::Sensor *sensor) { this->temperature_b21_sensor_ = sensor; }
+  void set_control_reference_sensor(sensor::Sensor *sensor) { this->control_reference_sensor_ = sensor; }
+  void set_outdoor_power_raw_sensor(sensor::Sensor *sensor) { this->outdoor_power_raw_sensor_ = sensor; }
+  void set_outdoor_current_sensor(sensor::Sensor *sensor) { this->outdoor_current_sensor_ = sensor; }
+
+ protected:
+  text_sensor::TextSensor *operational_state_sensor_ = nullptr;
+  text_sensor::TextSensor *operational_state_raw_sensor_ = nullptr;
+  text_sensor::TextSensor *selected_mode_raw_sensor_ = nullptr;
+  text_sensor::TextSensor *status_multiplex_sensor_ = nullptr;
+  text_sensor::TextSensor *raw_status_packet_sensor_ = nullptr;
+  binary_sensor::BinarySensor *compressor_running_sensor_ = nullptr;
+  sensor::Sensor *intake_temperature_sensor_ = nullptr;
+  sensor::Sensor *temperature_b21_sensor_ = nullptr;
+  sensor::Sensor *control_reference_sensor_ = nullptr;
+  sensor::Sensor *outdoor_power_raw_sensor_ = nullptr;
+  sensor::Sensor *outdoor_current_sensor_ = nullptr;
+
+  void publish_cnt_telemetry_();
+  std::string determine_operational_state_(uint8_t state) const;
+  bool determine_compressor_running_(uint8_t state) const;
+  climate::ClimateAction determine_action_from_cnt_state_(uint8_t state);
 };
 
 }  // namespace CNT

@@ -1,0 +1,275 @@
+# Panasonic CZ25 CN-CNT protocol notes
+
+These notes describe observations from a Panasonic CZ25-series unit connected through CN-CNT and ESPHome 2026.8.2.
+
+They are intentionally conservative: values are marked as observed only when captured from the tested unit. Some state names are still provisional and may be model-dependent.
+
+## Project scope
+
+The CZ25 branch is intended to improve the Home Assistant climate entity and expose useful Panasonic telemetry without actively fuzzing unknown control fields.
+
+The production-oriented approach is:
+
+- keep normal Panasonic climate control compatible with the upstream component,
+- derive `climate.action` from the physical CN-CNT operational state when known,
+- expose useful decoded telemetry as normal HA entities,
+- expose uncertain fields under neutral/debug names,
+- expose the complete 35-byte CN-CNT status response passively as `raw_status_packet` for later reverse engineering,
+- do not probe unknown control payload bytes on the production branch.
+
+## Packet layout used here
+
+The normal poll response is 35 bytes including header and checksum.
+
+Relevant full-packet byte indices:
+
+| Byte | Current interpretation |
+| --- | --- |
+| 2 | selected mode + power state |
+| 3 | target temperature x2 |
+| 12 | physical/internal operational state |
+| 13 | internal control/reference temperature x2 |
+| 14 | defrost (`0x02` documented/observed elsewhere as defrost) |
+| 18 | primary indoor/current temperature; likely intake/return-air/control temperature |
+| 19 | outside temperature |
+| 21 | secondary/alternate intake-temperature representation; tracks b18 very closely on CZ25 |
+| 22 | alternate outside temperature |
+| 28-29 | little-endian raw outdoor/power-related value |
+| 30 | current-like value; `b30 / 5` tracks current strongly |
+| 31-33 | rotating/multiplexed status fields; exact meaning unknown |
+
+## Selected mode byte (`b2`)
+
+Observed selected-mode values with the unit on:
+
+| b2 | Selected mode |
+| --- | --- |
+| `0x04` | AUTO / HEAT_COOL |
+| `0x24` | DRY |
+| `0x34` | COOL |
+| `0x44` | HEAT |
+| `0x64` | FAN_ONLY |
+
+The selected mode changes immediately after a command. Byte 12 can continue to report the previous physical state for several seconds, so b2 and b12 must not be treated as the same thing.
+
+## Operational state byte (`b12`)
+
+The strongest current model is that b12 describes the **physical operating family**, largely independently of selected mode b2.
+
+This became clear in AUTO/HEAT_COOL captures: with `b2 = 0x04`, the unit has directly reported HEAT states (`0x40/0x44/0x4C`) and COOL states (`0x38/0x3C`). AUTO therefore selects among the same physical state families rather than using a separate dedicated heat/cool family.
+
+### Observed on this CZ25
+
+| Physical family | b12 | Meaning |
+| --- | --- | --- |
+| AUTO/neutral | `0x00` | AUTO idle / neutral wait state |
+| DRY | `0x20` | DRY idle |
+| DRY | `0x28` | DRY start |
+| DRY | `0x2C` | DRY run |
+| COOL | `0x30` | COOL idle |
+| COOL | `0x38` | COOL start |
+| COOL | `0x3C` | COOL run |
+| HEAT | `0x40` | HEAT idle |
+| HEAT | `0x44` | HEAT transition |
+| HEAT | `0x48` | HEAT start |
+| HEAT | `0x4C` | HEAT run |
+| FAN | `0x60` | fan-only state |
+
+`0x44 = HEAT_TRANS` was captured during a real AUTO heating shutdown sequence:
+
+`HEAT_RUN (0x4C) -> HEAT_TRANS (0x44) -> HEAT_IDLE (0x40)`
+
+The COOL startup sequence in AUTO was captured as:
+
+`AUTO_IDLE (0x00) -> COOL_START (0x38) -> COOL_RUN (0x3C)`
+
+The 5-second polling interval did not capture `0x34` in that startup, so COOL_TRANS remains predicted rather than confirmed on this unit.
+
+### Compressor phase bits
+
+The low-nibble phase pattern is strongly supported by the captures:
+
+- `x0`: idle/base
+- `x4`: transition / stopping
+- `x8`: starting
+- `xC`: running
+
+This matches the compressor-state terminology exposed by commercial Panasonic CN-CNT gateways: Off / To off / To on / On. Interpreting `b12 & 0x0C` as a two-bit phase value gives exactly that sequence (`00`, `01`, `10`, `11`).
+
+### Observed 0x0x AUTO-family values with unresolved meaning
+
+Earlier captures have shown `0x0C` while selected mode was AUTO. Newer captures prove that ordinary AUTO cooling uses the standard COOL family (`0x38/0x3C`), so `0x0C` must **not** be called AUTO_COOL_RUN.
+
+Current conservative labels are:
+
+| b12 | Label | Status |
+| --- | --- | --- |
+| `0x04` | AUTO_TRANS_0x04 | predicted from low-nibble pattern, not captured |
+| `0x08` | AUTO_START_0x08 | predicted from low-nibble pattern, not captured |
+| `0x0C` | AUTO_RUN_0x0C | observed, physical heat/cool direction unresolved |
+
+### Predicted from the state pattern, not yet captured on this unit
+
+| Family | b12 | Provisional meaning |
+| --- | --- | --- |
+| DRY | `0x24` | transition |
+| COOL | `0x34` | transition |
+
+## AUTO / HEAT_COOL behavior
+
+AUTO should be thought of as a **selector of physical families**, not a separate physical operating family.
+
+A captured sequence with current temperature around 24 C and target reduced from 23.5 C downward showed:
+
+1. `b2 = 0x04` AUTO while `b12 = 0x4C` HEAT_RUN.
+2. Lowering the target produced `0x44` HEAT_TRANS.
+3. Next poll produced `0x40` HEAT_IDLE.
+4. After further target reduction the unit moved to `0x00` AUTO_IDLE/neutral.
+5. It remained in `0x00` for multiple polls.
+6. With target 16.5 C and room around 22 C, it entered `0x38` COOL_START.
+7. It then entered `0x3C` COOL_RUN while `b2` remained `0x04` AUTO.
+
+This is the clearest evidence so far that b12 is the authoritative physical-action field.
+
+## Important transition behavior
+
+Selected mode b2 changes before the physical state machine b12 catches up.
+
+Examples captured on the unit:
+
+- HEAT -> DRY: b2 changes to `0x24` immediately while b12 remains `0x4C` HEAT_RUN for the immediate response; roughly one poll later b12 becomes `0x20` DRY_IDLE.
+- DRY -> COOL: b2 changes to `0x34` immediately while b12 remains `0x20` DRY_IDLE; roughly one poll later b12 becomes `0x30` COOL_IDLE.
+- AUTO target reduction while physically heating: b2 remains `0x04`, while b12 progresses through `0x4C -> 0x44 -> 0x40 -> 0x00 -> 0x38 -> 0x3C` as the unit stops heating, waits, and starts cooling.
+
+For this reason operational-state labels and action should be derived primarily from b12, without relabelling b12 merely because the selected mode in b2 has changed.
+
+## Climate action
+
+The upstream component derives `climate.action` from selected mode and current/target temperatures with a 2 C tolerance. Captures show that this can disagree with the actual physical state.
+
+The CZ25 branch now derives action from b12 when the physical family is known:
+
+- HEAT start/run (`0x48/0x4C`) -> HEATING
+- COOL start/run (`0x38/0x3C`) -> COOLING
+- DRY start/run (`0x28/0x2C`) -> DRYING
+- idle (`x0`) and transition (`x4`) states -> IDLE
+- FAN `0x60` -> FAN
+- AUTO neutral `0x00` -> IDLE
+
+Unknown 0x0x AUTO states fall back to the upstream behavior because their physical heat/cool direction has not yet been established.
+
+## Compressor running
+
+The binary compressor-running estimate is derived from the low-nibble phase pattern:
+
+- start (`x8`) -> running
+- run (`xC`) -> running
+- idle (`x0`) -> not running
+- transition (`x4`) -> not running
+
+Observed start/run values include:
+
+- `0x28`, `0x2C`
+- `0x38`, `0x3C`
+- `0x48`, `0x4C`
+
+`0x0C` is also treated as compressor-running because it was observed as an active AUTO-family state, but its heat/cool direction remains unresolved.
+
+## Temperature fields
+
+### b18
+
+b18 is the primary temperature used by the existing component as current temperature when supported. On this CZ25 it behaves consistently with Panasonic's indoor intake/return-air/control temperature, but should not be assumed to equal a room-center reference thermometer.
+
+### b21
+
+b21 is strongly linked to the same intake-air measurement as b18 on this CZ25.
+
+A controlled physical test was performed by warming the indoor unit's intake-air temperature sensor by hand while the unit was idle. The log shows b18 and b21 moving together, with b21 staying exactly +1 C above b18 throughout the observed rise and initial fall:
+
+| Approx. time | b18 | b21 |
+| --- | ---: | ---: |
+| 19:37:53 | 23 C | 24 C |
+| 19:38:08 | 24 C | 25 C |
+| 19:38:13 | 26 C | 27 C |
+| 19:38:18 | 27 C | 28 C |
+| 19:38:23 | 28 C | 29 C |
+| 19:38:33 | 28 C | 29 C |
+| 19:38:38 | 27 C | 28 C |
+| 19:38:48 | 26 C | 27 C |
+
+The raw packet bytes show the same relationship directly (`b21 = b18 + 1`) through this transient. No extra lag is visible at the 5-second polling resolution.
+
+Because only the intake-air thermistor was deliberately heated, this is strong evidence against interpreting b21 as an indoor coil/pipe/heat-exchanger temperature on this model. The strongest current interpretation is that b21 is another representation of the same physical intake temperature, likely with a fixed/conditional offset or a closely related internal processing path.
+
+The +1 C relationship is strong for this controlled transient but should not yet be assumed universal: other captures sometimes show b18 and b21 equal. b18 therefore remains the primary current-temperature field, and b21 remains exposed under the neutral key `temperature_b21` while the exact rule that produces it is investigated.
+
+### b13
+
+b13 is encoded in 0.5 C increments (`b13 / 2`). It follows target-temperature changes with delay and behaves like an internal control/reference value rather than a physical sensor.
+
+Examples observed include:
+
+- target 24.0 C -> reference 25.0 C
+- target 23.0 C -> reference initially remains 25.0 C
+- target 21.5 C -> reference 24.0 C
+- target 20.5 C -> reference 22.5 C then 21.5 C
+- target 18.5 C -> reference eventually 19.5 C
+
+During AUTO cooling startup, the reference also moved independently of b18/b21, reinforcing that it is a control target rather than a sensor.
+
+Commercial CN-CNT gateways expose separate concepts named `Temperature reference`, `Input reference temperature`, and `Return path temperature`. These names are useful comparison targets for future controlled tests, but the exact mapping to b13/b18/b21 is not yet proven on this CZ25.
+
+## External room sensor
+
+No direct CN-CNT write field for an external room-temperature measurement has been established for this RAC protocol. Commercial CN-CNT gateways implement an external room sensor as a virtual-temperature controller: they read Panasonic's current reference temperature and continuously compensate the setpoint sent to the unit rather than replacing the Panasonic thermistor value directly.
+
+That distinction should be preserved in the ESPHome component. The existing upstream `current_temperature_sensor` only changes the ESPHome climate entity's displayed/current temperature and does not send a measured room temperature to the indoor unit.
+
+## Power/current fields
+
+The branch exposes both the upstream value and the raw fields for comparison.
+
+- raw outdoor/power field: `b28 + 256*b29`
+- current-like field: `b30 / 5 A`
+- upstream legacy power calculation: `(b28 + 256*b29) - b30`
+
+On the tested unit b30/5 tracks load very strongly, but the exact electrical meaning should remain provisional until calibrated against an external power/current meter.
+
+## Multiplex bytes 31-33
+
+The tested unit repeatedly cycles combinations such as:
+
+- `80:68:70`
+- `C0:00:00`
+- `C1:32:13`
+
+The exact meaning is unknown. The CZ25 branch exposes the triplet as `status_multiplex` to make further capture analysis easier.
+
+## Passive raw capture
+
+The branch can expose the complete verified CN-CNT poll response as `raw_status_packet`. For the normal CZ25 response this is the full 35-byte packet including header, payload length, all known and unknown status bytes, and checksum.
+
+This is the preferred way to collect unknown data fields: it is entirely passive and does not modify unknown control bytes. Normal verbose UART logging remains useful during active reverse engineering, but the raw packet entity makes long-term HA-side capture possible without keeping verbose logging enabled.
+
+## Exposed entities
+
+The current CZ25 branch can expose:
+
+- normal Panasonic climate controls and target/current temperature
+- decoded physical operational state
+- raw b12
+- raw selected mode b2
+- compressor-running binary state
+- b18 intake/current temperature
+- b21 alternate/secondary intake-related temperature
+- b13/2 control reference
+- outside temperature
+- defrost state
+- upstream-compatible current power consumption
+- b28/b29 raw outdoor power value
+- b30/5 current-like value
+- b31:b32:b33 multiplex triplet
+- complete verified CN-CNT status packet as hex text
+
+The raw/debug entities are intended to support further decoding without changing the parser or writing unknown values to the indoor unit.
