@@ -54,6 +54,7 @@ CONF_TEMPERATURE_B21 = "temperature_b21"
 CONF_CONTROL_REFERENCE = "control_reference"
 CONF_OUTDOOR_POWER_RAW = "outdoor_power_raw"
 CONF_OUTDOOR_CURRENT = "outdoor_current"
+CONF_PROBE_SCAN = "probe_scan"
 CONF_WLAN = "wlan"
 CONF_CNT = "cnt"
 
@@ -126,6 +127,7 @@ PANASONIC_CNT_SCHEMA = {
         device_class=DEVICE_CLASS_CURRENT,
         state_class=STATE_CLASS_MEASUREMENT,
     ),
+    cv.Optional(CONF_PROBE_SCAN, default=False): cv.boolean,
 }
 
 CONFIG_SCHEMA = cv.typed_schema(
@@ -221,3 +223,6 @@ async def to_code(config):
     if CONF_OUTDOOR_CURRENT in config:
         sens = await sensor.new_sensor(config[CONF_OUTDOOR_CURRENT])
         cg.add(var.set_outdoor_current_sensor(sens))
+
+    if CONF_PROBE_SCAN in config:
+        cg.add(var.set_probe_scan_enabled(config[CONF_PROBE_SCAN]))
