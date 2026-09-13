@@ -99,6 +99,12 @@ climate::ClimateAction PanasonicACCZ25::determine_action_from_cnt_state_(uint8_t
   // Derive action primarily from the physical b12 family, not from selected
   // mode or current-vs-target temperature. This also preserves the real old
   // physical action for the few seconds after b2 has changed to a new mode.
+  //
+  // Low-nibble phase semantics from the captures:
+  //   x0 = idle/base
+  //   x4 = transition (not actively heating/cooling/drying)
+  //   x8 = start
+  //   xC = run
   switch (state) {
     case 0x00:
     case 0x04:
