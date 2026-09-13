@@ -80,9 +80,6 @@ class PanasonicACCZ25 : public PanasonicACCNT {
   sensor::Sensor *outdoor_power_raw_sensor_ = nullptr;
   sensor::Sensor *outdoor_current_sensor_ = nullptr;
 
-  climate::ClimateMode previous_selected_mode_ = climate::CLIMATE_MODE_OFF;
-  bool has_previous_selected_mode_ = false;
-
   void publish_cnt_telemetry_();
   std::string determine_operational_state_(uint8_t state) const;
   bool determine_compressor_running_(uint8_t state) const;
