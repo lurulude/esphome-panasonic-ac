@@ -20,6 +20,15 @@ enum class ACState {
   Ready,         // All done, ready to receive regular packets
 };
 
+enum class CZ25ProbePhase {
+  IDLE,
+  SEND_PROBE,
+  WAIT_SAMPLE,
+  WAIT_POLL_DELAY,
+  SEND_RESTORE,
+  WAIT_RESTORE,
+};
+
 class PanasonicACCNT : public PanasonicAC {
  public:
   void control(const climate::ClimateCall &call) override;
@@ -67,6 +76,7 @@ class PanasonicACCZ25 : public PanasonicACCNT {
   void set_control_reference_sensor(sensor::Sensor *sensor) { this->control_reference_sensor_ = sensor; }
   void set_outdoor_power_raw_sensor(sensor::Sensor *sensor) { this->outdoor_power_raw_sensor_ = sensor; }
   void set_outdoor_current_sensor(sensor::Sensor *sensor) { this->outdoor_current_sensor_ = sensor; }
+  void set_probe_scan_enabled(bool enabled) { this->probe_scan_enabled_ = enabled; }
 
  protected:
   text_sensor::TextSensor *operational_state_sensor_ = nullptr;
@@ -80,10 +90,24 @@ class PanasonicACCZ25 : public PanasonicACCNT {
   sensor::Sensor *outdoor_power_raw_sensor_ = nullptr;
   sensor::Sensor *outdoor_current_sensor_ = nullptr;
 
+  bool probe_scan_enabled_ = false;
+  bool probe_scan_started_ = false;
+  CZ25ProbePhase probe_phase_ = CZ25ProbePhase::IDLE;
+  uint8_t probe_byte_index_ = 0;
+  uint8_t probe_value_index_ = 0;
+  uint8_t probe_sample_index_ = 0;
+  uint8_t probe_original_value_ = 0;
+  uint32_t probe_next_action_ms_ = 0;
+  std::vector<uint8_t> probe_restore_command_;
+
   void publish_cnt_telemetry_();
   std::string determine_operational_state_(uint8_t state) const;
   bool determine_compressor_running_(uint8_t state) const;
   climate::ClimateAction determine_action_from_cnt_state_(uint8_t state);
+
+  bool handle_probe_scan_();
+  void probe_scan_on_packet_();
+  void advance_probe_scan_();
 };
 
 }  // namespace CNT
