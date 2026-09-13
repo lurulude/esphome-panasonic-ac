@@ -46,6 +46,8 @@ CONF_CURRENT_POWER_CONSUMPTION = "current_power_consumption"
 CONF_DEFROST_SENSOR = "defrost_sensor"
 CONF_OPERATIONAL_STATE = "operational_state"
 CONF_OPERATIONAL_STATE_RAW = "operational_state_raw"
+CONF_SELECTED_MODE_RAW = "selected_mode_raw"
+CONF_STATUS_MULTIPLEX = "status_multiplex"
 CONF_COMPRESSOR_RUNNING = "compressor_running"
 CONF_INTAKE_TEMPERATURE = "intake_temperature"
 CONF_TEMPERATURE_B21 = "temperature_b21"
@@ -91,6 +93,8 @@ PANASONIC_CNT_SCHEMA = {
     ),
     cv.Optional(CONF_OPERATIONAL_STATE): text_sensor.text_sensor_schema(),
     cv.Optional(CONF_OPERATIONAL_STATE_RAW): text_sensor.text_sensor_schema(),
+    cv.Optional(CONF_SELECTED_MODE_RAW): text_sensor.text_sensor_schema(),
+    cv.Optional(CONF_STATUS_MULTIPLEX): text_sensor.text_sensor_schema(),
     cv.Optional(CONF_COMPRESSOR_RUNNING): binary_sensor.binary_sensor_schema(),
     cv.Optional(CONF_INTAKE_TEMPERATURE): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS,
@@ -185,6 +189,14 @@ async def to_code(config):
     if CONF_OPERATIONAL_STATE_RAW in config:
         sens = await text_sensor.new_text_sensor(config[CONF_OPERATIONAL_STATE_RAW])
         cg.add(var.set_operational_state_raw_sensor(sens))
+
+    if CONF_SELECTED_MODE_RAW in config:
+        sens = await text_sensor.new_text_sensor(config[CONF_SELECTED_MODE_RAW])
+        cg.add(var.set_selected_mode_raw_sensor(sens))
+
+    if CONF_STATUS_MULTIPLEX in config:
+        sens = await text_sensor.new_text_sensor(config[CONF_STATUS_MULTIPLEX])
+        cg.add(var.set_status_multiplex_sensor(sens))
 
     if CONF_COMPRESSOR_RUNNING in config:
         sens = await binary_sensor.new_binary_sensor(config[CONF_COMPRESSOR_RUNNING])
